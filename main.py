@@ -65,7 +65,7 @@ def sound_for_run(input_file,
     y, sr = librosa.load(input_file, sr=None, mono=False)
     y_mono = librosa.to_mono(y)
     tempo, beats = librosa.beat.beat_track(y=y_mono, sr=sr)
-    logger.info('Recognized, input file BPM = %f' % tempo)
+    logger.info('Recognized, input file BPM is: %f' % tempo)
 
     # 根据目标节奏，计算需要变换的比例
     rate = new_bpm_rate(tempo, step_per_min)
@@ -115,13 +115,14 @@ def sound_for_run(input_file,
 
 
 usage_cmd = '''
-usage: [-h, --help]
-       [-l, --level <log_level>]
-       [-t, --threads <thread_num>]
-       [-i, --input <input_dir>]
-       [-o, --output <output_dir>]
-       [-s, --step <step_per_min>]
-       <file1> <file2> ...
+usage: [-h, --help]                     查看使用帮助
+       [-l, --level <log_level>]        日志级别，缺省 INFO
+       [-t, --threads <thread_num>]     线程数量，缺省 1 个线程
+       [-i, --input <input_dir>]        输入目录，将扫描此目录里面的文件
+       [-o, --output <output_dir>]      输出文件目录，缺省当前目录 .
+       [-s, --step <step_per_min>]      目标声音节奏（步频），缺省 180
+       [-v, --volume <number>]          目标声音音量增减，可取负数，缺省 0
+       <file1> <file2> ...              要处理的多个声音文件
 '''
 
 
@@ -132,18 +133,23 @@ def usage(module, exit_code=None):
 
 
 if __name__ == '__main__':
+
+    if len(sys.argv) == 1:
+        usage(sys.argv[0], 0)
+
     try:
         opts, args = getopt.getopt(sys.argv[1:],
-                                   'hl:t:i:o:s:',
-                                   ['help', 'level=', 'threads=', 'input=', 'output=', 'step='])
+                                   'hl:t:i:o:s:v:',
+                                   ['help', 'level=', 'threads=', 'input=', 'output=', 'step=', 'volume='])
     except getopt.GetoptError:
         logger.warning('Parse args error.')
         usage(sys.argv[0], 1)
 
-    thread_num = 4
-    input_dir = '.'
-    output_dir = '.'
-    step_per_min = 180
+    thread_num = 1  # 工作线程数据
+    input_dir = None  # 输入目录
+    output_dir = '.'  # 输出目录
+    step_per_min = 180  # 目标步频
+    volume = 0  # 音量增减变化
     for opt, val in opts:
         if opt in ('-h', '--help'):
             usage(sys.argv[0], 0)
@@ -157,22 +163,26 @@ if __name__ == '__main__':
             output_dir = val
         if opt in ('-s', '--step'):
             step_per_min = int(val)
+        if opt in ('-v', '--volume'):
+            volume = int(val)
 
     input_files = []  # 将要处理的文件列表
 
-    logger.debug('Input directory is: %s' % input_dir)
-    if not os.path.isdir(input_dir):
-        logger.warning('Not a directory: %s' % input_dir)
-        sys.exit(0)
+    if input_dir is not None:
+        logger.debug('Input directory is: %s' % input_dir)
+        if not os.path.isdir(input_dir):
+            logger.warning('Not a directory: %s' % input_dir)
+            sys.exit(2)
 
-    # 扫描输入目录的声音文件
-    for file in os.listdir(input_dir):
-        if file.endswith('.mp3'):
-            input_files.append(os.path.join(input_dir, file))
-    logger.info('Scan input directory, found %d sound files' %
-                len(input_files))
+        # 扫描输入目录的声音文件
+        logger.debug('Scaning input directory')
+        for file in os.listdir(input_dir):
+            if file.endswith('.mp3'):
+                input_files.append(os.path.join(input_dir, file))
+        logger.info('Scan input directory, found %d sound files' %
+                    len(input_files))
 
-    logger.debug('Input files are: %s' % args)
+    logger.info('Input files are: %s' % args)
 
     for file in args:
         if not os.path.isfile(file):
@@ -180,22 +190,31 @@ if __name__ == '__main__':
         if file.endswith('.mp3'):
             input_files.append(file)
 
-    logger.info('All %d files should be update' % len(input_files))
+    if len(input_files) == 0:
+        logger.warning('No files should be update')
+        sys.exit(0)
+    else:
+        logger.info('All %d files should be update' % len(input_files))
 
     logger.debug('Output directory is: %s' % output_dir)
     if not os.path.isdir(output_dir):
         logger.warning('Not a directory: %s' % output_dir)
-        sys.exit(0)
+        sys.exit(3)
 
     logger.info('Step per minute is: %d' % step_per_min)
 
-    pool = threadpool.ThreadPool(thread_num)
-    logger.info('Created %d worker threads' % thread_num)
+    thread_min = min(thread_num, len(input_files))
+    pool = threadpool.ThreadPool(thread_min)
+    logger.info('Created thread pool, contains %d worker threads' % thread_min)
 
     thread_args_list = []
     for file_name in input_files:
         thread_args_list.append(
-            (None, {'input_file': file_name, 'step_per_min': step_per_min, 'output_path': output_dir, 'volume': 5}))
+            (None, {'input_file': file_name,
+                    'step_per_min': step_per_min,
+                    'output_path': output_dir,
+                    'output_ext': '.mp3',
+                    'volume': volume}))
 
     requests = threadpool.makeRequests(sound_for_run, thread_args_list)
     [pool.putRequest(req) for req in requests]
