@@ -197,6 +197,10 @@ if __name__ == '__main__':
         logger.info('All %d files should be update' % len(input_files))
 
     logger.debug('Output directory is: %s' % output_dir)
+    if not os.path.exists(output_dir):
+        logger.debug('No such directory: %s' % output_dir)
+        os.makedirs(output_dir)
+        logger.warning('Created directory: %s' % output_dir)
     if not os.path.isdir(output_dir):
         logger.warning('Not a directory: %s' % output_dir)
         sys.exit(3)
