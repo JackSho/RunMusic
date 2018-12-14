@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 
 import librosa
 import numpy as np
@@ -21,7 +22,6 @@ def new_bpm_rate(sound_bpm, bpm_target=180):
     # 以目标节奏的 1.4 倍为分界点
     times = 1.4
 
-    # 最小节奏与最大节奏相似
     if sound_bpm < target_mid:
         return target_mid / sound_bpm
     elif sound_bpm >= target_mid and sound_bpm < target_mid * times:
@@ -48,17 +48,7 @@ def sound_for_run(input_file,
 
     logger.debug('Input file is: %s' % input_file)
     logger.debug('Step per minute is: %d' % step_per_min)
-
     logger.info('Processing file: ' + input_file)
-
-    source_path, source_filename = os.path.split(input_file)
-    filename, ext = os.path.splitext(source_filename)
-    if not output_path:
-        output_path = source_path
-    output_file = '%s/%s_%d%s' % (output_path,
-                                  filename, step_per_min, output_ext)
-
-    logger.debug('Output file is: %s' % output_file)
 
     # 识别音乐节奏
     logger.debug('Loading file: %s' % input_file)
@@ -66,6 +56,15 @@ def sound_for_run(input_file,
     y_mono = librosa.to_mono(y)
     tempo, beats = librosa.beat.beat_track(y=y_mono, sr=sr)
     logger.info('Recognized, input file BPM is: %f' % tempo)
+
+    # 生成输出文件名
+    source_path, source_filename = os.path.split(input_file)
+    filename, ext = os.path.splitext(source_filename)
+    if not output_path:
+        output_path = source_path
+    output_file = '%s/%s_%d_%d%s' % (output_path,
+                                     filename, tempo, step_per_min, output_ext)
+    logger.debug('Output file is: %s' % output_file)
 
     # 根据目标节奏，计算需要变换的比例
     rate = new_bpm_rate(tempo, step_per_min)
@@ -108,8 +107,8 @@ def sound_for_run(input_file,
         audio_dst[k] = v
 
     audio_dst.save()
-    logger.info('Wrote tag info to new file')
-    logger.info('Processed file: ' + input_file)
+    logger.debug('Wrote tag info to new file')
+    logger.info('Processed file: %s' % input_file)
 
     return
 
@@ -130,6 +129,7 @@ def usage(module, exit_code=None):
     print(usage_cmd)
     if exit_code is not None:
         sys.exit(exit_code)
+    return
 
 
 if __name__ == '__main__':
@@ -140,7 +140,8 @@ if __name__ == '__main__':
     try:
         opts, args = getopt.getopt(sys.argv[1:],
                                    'hl:t:i:o:s:v:',
-                                   ['help', 'level=', 'threads=', 'input=', 'output=', 'step=', 'volume='])
+                                   ['help', 'level=', 'threads=', 'input=',
+                                    'output=', 'step=', 'volume='])
     except getopt.GetoptError:
         logger.warning('Parse args error.')
         usage(sys.argv[0], 1)
@@ -171,7 +172,7 @@ if __name__ == '__main__':
     if input_dir is not None:
         logger.debug('Input directory is: %s' % input_dir)
         if not os.path.isdir(input_dir):
-            logger.warning('Not a directory: %s' % input_dir)
+            logger.warning('%s: No such file or directory' % input_dir)
             sys.exit(2)
 
         # 扫描输入目录的声音文件
@@ -186,12 +187,12 @@ if __name__ == '__main__':
 
     for file in args:
         if not os.path.isfile(file):
-            logger.warning('Not a file: %s' % file)
+            logger.warning('%s: No such file or directory' % file)
         if file.endswith('.mp3'):
             input_files.append(file)
 
     if len(input_files) == 0:
-        logger.warning('No files should be update')
+        logger.warning('None files should be update')
         sys.exit(0)
     else:
         logger.info('All %d files should be update' % len(input_files))
@@ -202,7 +203,7 @@ if __name__ == '__main__':
         os.makedirs(output_dir)
         logger.warning('Created directory: %s' % output_dir)
     if not os.path.isdir(output_dir):
-        logger.warning('Not a directory: %s' % output_dir)
+        logger.warning('%s: No such file or directory' % output_dir)
         sys.exit(3)
 
     logger.info('Step per minute is: %d' % step_per_min)
@@ -224,5 +225,8 @@ if __name__ == '__main__':
     [pool.putRequest(req) for req in requests]
 
     logger.debug('Waiting all threads finish')
+    time_start = time.time()
     pool.wait()
     logger.info('All threads stoped, application will stop')
+    time_end = time.time()
+    logger.info('Totally cost %f seconds' % (time_end - time_start))
